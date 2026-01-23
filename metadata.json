@@ -1,0 +1,8 @@
+{
+  "name": "OneClick Digital",
+  "description": "Uma plataforma SaaS para gerar produtos digitais de alto valor (e-books, copy de vendas, roteiros sociais) usando IA em minutos.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
