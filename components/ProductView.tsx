@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Product, GeneratedContent } from '../types';
-import { LucideArrowLeft, LucideDownload, LucideCopy, LucideShare2, LucideEdit3, LucideCheck, LucideX, LucideImage, LucideUpload, LucideSparkles, LucideLoader, LucideHeadphones, LucidePlay } from 'lucide-react';
+import { LucideArrowLeft, LucideDownload, LucideCopy, LucideShare2, LucideEdit3, LucideCheck, LucideX, LucideImage, LucideUpload, LucideSparkles, LucideLoader, LucideHeadphones, LucidePlay, LucideEye } from 'lucide-react';
 import { generateCoverImage, generateSpeech, translateText } from '../services/geminiService';
 
 interface ProductViewProps {
@@ -26,6 +26,9 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [selectedVoice, setSelectedVoice] = useState('Kore');
   const [selectedLanguage, setSelectedLanguage] = useState(product.language || 'Português');
+
+  // PDF Preview State
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
 
   const voices = [
       { name: 'Kore', gender: 'Feminino', style: 'Calmo' },
@@ -121,6 +124,61 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
 
   return (
     <div className="bg-slate-50 min-h-screen relative">
+      {/* PDF Preview Modal */}
+      {showPdfPreview && (
+        <div className="fixed inset-0 z-50 flex justify-center bg-slate-900/90 backdrop-blur-sm overflow-y-auto pt-10 pb-10">
+           {/* Floating Controls */}
+           <div className="fixed top-6 right-6 flex gap-3 z-50">
+               <button 
+                 onClick={() => handleExport('PDF')}
+                 className="bg-white text-slate-900 px-4 py-2 rounded-full font-bold shadow-lg hover:bg-slate-100 flex items-center gap-2"
+               >
+                   <LucideDownload className="w-4 h-4" /> Baixar PDF
+               </button>
+               <button 
+                 onClick={() => setShowPdfPreview(false)}
+                 className="bg-slate-800 text-white p-2 rounded-full hover:bg-slate-700 shadow-lg"
+               >
+                   <LucideX className="w-6 h-6" />
+               </button>
+           </div>
+
+           {/* A4 Page Simulation */}
+           <div className="bg-white w-[210mm] min-h-[297mm] h-fit shadow-2xl p-[20mm] text-slate-900 relative animate-scale-in origin-top">
+                {/* Header/Title Page */}
+                <div className="text-center border-b-2 border-slate-900 pb-12 mb-12">
+                    <h1 className="text-4xl font-serif font-bold mb-4">{content.title}</h1>
+                    <h2 className="text-xl text-slate-500 font-light">{content.subtitle}</h2>
+                </div>
+
+                {content.coverImageUrl && (
+                    <div className="mb-12 flex justify-center">
+                         <img src={content.coverImageUrl} className="w-[120mm] shadow-xl rounded-sm object-cover" alt="Capa" />
+                    </div>
+                )}
+                
+                <div className="mb-16 text-center text-sm text-slate-400 font-serif italic">
+                    Gerado por OneClick Digital • {product.niche} Series
+                </div>
+
+                {/* Chapters */}
+                <div className="space-y-16">
+                    {content.chapters.map((chapter, idx) => (
+                        <div key={idx}>
+                             <h3 className="text-2xl font-serif font-bold mb-6 flex items-baseline gap-3 border-b border-slate-200 pb-2 text-slate-800">
+                                <span className="text-4xl text-slate-200 font-sans font-black">{idx + 1}</span>
+                                {chapter.title}
+                             </h3>
+                             <div className="prose prose-slate max-w-none font-serif text-justify leading-loose whitespace-pre-wrap text-lg text-slate-700">
+                                 {chapter.content}
+                             </div>
+                        </div>
+                    ))}
+                </div>
+           </div>
+        </div>
+      )}
+
       {/* Edit Cover Modal */}
       {showCoverModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
@@ -210,6 +268,12 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
             <h1 className="text-lg font-bold text-slate-900 truncate max-w-md">{content.title}</h1>
           </div>
           <div className="flex gap-2">
+            <button 
+              onClick={() => setShowPdfPreview(true)}
+              className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+            >
+              <LucideEye className="w-4 h-4" /> Visualizar PDF
+            </button>
             <button 
               onClick={() => handleExport('PDF')}
               className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
