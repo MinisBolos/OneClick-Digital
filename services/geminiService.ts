@@ -185,7 +185,7 @@ export const generateVideo = async (prompt: string, imageBase64?: string, aspect
 };
 
 // 2. TTS Generation
-export const generateSpeech = async (text: string): Promise<ArrayBuffer> => {
+export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<ArrayBuffer> => {
     try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
@@ -194,7 +194,7 @@ export const generateSpeech = async (text: string): Promise<ArrayBuffer> => {
                 responseModalities: [Modality.AUDIO],
                 speechConfig: {
                     voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Kore' }, // 'Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'
+                        prebuiltVoiceConfig: { voiceName: voiceName }, // 'Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'
                     },
                 },
             },
@@ -216,6 +216,20 @@ export const generateSpeech = async (text: string): Promise<ArrayBuffer> => {
         console.error("Erro TTS:", error);
         throw error;
     }
+}
+
+// 2.1 Translate Text
+export const translateText = async (text: string, targetLanguage: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Translate the following text to ${targetLanguage}. Return only the translated text, do not add any preamble or markdown.\n\nText: ${text}`,
+    });
+    return response.text || text;
+  } catch (error) {
+    console.error("Translation Error:", error);
+    return text;
+  }
 }
 
 // 3. Pro Image Generation

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Product, GeneratedContent } from '../types';
 import { LucideArrowLeft, LucideDownload, LucideCopy, LucideShare2, LucideEdit3, LucideCheck, LucideX, LucideImage, LucideUpload, LucideSparkles, LucideLoader, LucideHeadphones, LucidePlay } from 'lucide-react';
-import { generateCoverImage, generateSpeech } from '../services/geminiService';
+import { generateCoverImage, generateSpeech, translateText } from '../services/geminiService';
 
 interface ProductViewProps {
   product: Product;
@@ -24,6 +24,18 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
   // Audio State
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState('Kore');
+  const [selectedLanguage, setSelectedLanguage] = useState(product.language || 'Português');
+
+  const voices = [
+      { name: 'Kore', gender: 'Feminino', style: 'Calmo' },
+      { name: 'Puck', gender: 'Masculino', style: 'Energético' },
+      { name: 'Charon', gender: 'Masculino', style: 'Profundo' },
+      { name: 'Fenrir', gender: 'Masculino', style: 'Autoritário' },
+      { name: 'Zephyr', gender: 'Feminino', style: 'Suave' },
+  ];
+
+  const languages = ['Português', 'English', 'Spanish', 'French', 'German', 'Italian', 'Japanese'];
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -87,9 +99,14 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
   const handleGenerateAudio = async () => {
     setIsGeneratingAudio(true);
     try {
-        // Combine first chapter for demo
-        const textToRead = content.chapters[0].content.slice(0, 500); // Limit length for demo speed
-        const audioBuffer = await generateSpeech(textToRead);
+        let textToRead = content.chapters[0].content.slice(0, 500); // Limit length for demo speed
+        
+        // Translate if selected language differs from product language (and assuming product language content matches metadata)
+        if (selectedLanguage !== product.language) {
+          textToRead = await translateText(textToRead, selectedLanguage);
+        }
+
+        const audioBuffer = await generateSpeech(textToRead, selectedVoice);
         const blob = new Blob([audioBuffer], { type: 'audio/wav' });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
@@ -388,21 +405,67 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
                     </p>
                     
                     {!audioUrl ? (
-                        <button 
-                            onClick={handleGenerateAudio}
-                            disabled={isGeneratingAudio}
-                            className="bg-indigo-600 text-white px-8 py-3 rounded-full font-bold hover:bg-indigo-700 transition flex items-center gap-2"
-                        >
-                            {isGeneratingAudio ? (
-                                <>
-                                    <LucideLoader className="w-5 h-5 animate-spin" /> Gerando Áudio...
-                                </>
-                            ) : (
-                                <>
-                                    <LucidePlay className="w-5 h-5" /> Gerar Capítulo de Amostra
-                                </>
-                            )}
-                        </button>
+                        <>
+                            <div className="w-full max-w-lg mb-6 flex flex-col gap-6">
+                                {/* Voice Selector */}
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-2 text-left">Selecione a Voz</label>
+                                    <div className="grid gap-3">
+                                        {voices.map(voice => (
+                                            <button
+                                                key={voice.name}
+                                                onClick={() => setSelectedVoice(voice.name)}
+                                                className={`flex items-center justify-between p-3 rounded-xl border text-left transition ${selectedVoice === voice.name ? 'border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600' : 'border-slate-200 hover:border-indigo-300'}`}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${selectedVoice === voice.name ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                        {voice.name[0]}
+                                                    </div>
+                                                    <div>
+                                                        <div className={`font-bold ${selectedVoice === voice.name ? 'text-indigo-900' : 'text-slate-700'}`}>{voice.name}</div>
+                                                        <div className="text-xs text-slate-500">{voice.gender} • {voice.style}</div>
+                                                    </div>
+                                                </div>
+                                                {selectedVoice === voice.name && <LucideCheck className="w-4 h-4 text-indigo-600" />}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Language Selector */}
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-2 text-left">Idioma da Narração</label>
+                                    <select 
+                                        value={selectedLanguage}
+                                        onChange={(e) => setSelectedLanguage(e.target.value)}
+                                        className="w-full p-3 rounded-xl border border-slate-200 bg-white font-medium text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                                    >
+                                        {languages.map(lang => (
+                                            <option key={lang} value={lang}>{lang}</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-xs text-slate-400 mt-2 text-left">
+                                        A IA traduzirá automaticamente o conteúdo se o idioma selecionado for diferente do original.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={handleGenerateAudio}
+                                disabled={isGeneratingAudio}
+                                className="bg-indigo-600 text-white px-8 py-3 rounded-full font-bold hover:bg-indigo-700 transition flex items-center gap-2"
+                            >
+                                {isGeneratingAudio ? (
+                                    <>
+                                        <LucideLoader className="w-5 h-5 animate-spin" /> Gerando Áudio...
+                                    </>
+                                ) : (
+                                    <>
+                                        <LucidePlay className="w-5 h-5" /> Gerar Capítulo de Amostra
+                                    </>
+                                )}
+                            </button>
+                        </>
                     ) : (
                         <div className="w-full max-w-md p-4 bg-slate-50 rounded-xl border border-slate-200">
                              <audio controls src={audioUrl} className="w-full" />
