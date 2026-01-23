@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getLiveClient } from '../services/geminiService';
 import { LiveServerMessage, Modality } from '@google/genai';
-import { LucideMic, LucideMicOff, LucideX, LucideAudioWaveform } from 'lucide-react';
+import { LucideMic, LucideMicOff, LucideX, LucideAudioWaveform, LucideAlertTriangle } from 'lucide-react';
 
 interface LiveSessionProps {
     onClose: () => void;
@@ -11,6 +11,7 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
     const [isActive, setIsActive] = useState(false);
     const [status, setStatus] = useState('Desconectado');
     const [isMuted, setIsMuted] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
     
     // Audio Context Refs
     const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -27,13 +28,26 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
 
     const handleConnect = async () => {
         setStatus('Conectando...');
+        setErrorMsg(null);
         try {
             const liveClient = getLiveClient();
             
-            inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
-            outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+            // Safe AudioContext creation
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioContextClass) {
+                throw new Error("Seu navegador não suporta Áudio Web.");
+            }
+
+            inputAudioContextRef.current = new AudioContextClass({sampleRate: 16000});
+            outputAudioContextRef.current = new AudioContextClass({sampleRate: 24000});
             
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (err) {
+                console.error("Microphone access error:", err);
+                throw new Error("Permissão de microfone negada ou dispositivo não encontrado.");
+            }
             
             sessionPromiseRef.current = liveClient.connect({
                 model: 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -43,21 +57,23 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
                         setIsActive(true);
                         
                         // Setup Input Stream
-                        const ctx = inputAudioContextRef.current!;
-                        const source = ctx.createMediaStreamSource(stream);
-                        const processor = ctx.createScriptProcessor(4096, 1, 1);
-                        
-                        processor.onaudioprocess = (e) => {
-                            if (isMuted) return;
-                            const inputData = e.inputBuffer.getChannelData(0);
-                            const pcmBlob = createBlob(inputData);
-                            sessionPromiseRef.current?.then(session => {
-                                session.sendRealtimeInput({ media: pcmBlob });
-                            });
-                        };
-                        
-                        source.connect(processor);
-                        processor.connect(ctx.destination);
+                        if (inputAudioContextRef.current) {
+                             const ctx = inputAudioContextRef.current;
+                             const source = ctx.createMediaStreamSource(stream);
+                             const processor = ctx.createScriptProcessor(4096, 1, 1);
+                             
+                             processor.onaudioprocess = (e) => {
+                                 if (isMuted) return;
+                                 const inputData = e.inputBuffer.getChannelData(0);
+                                 const pcmBlob = createBlob(inputData);
+                                 sessionPromiseRef.current?.then(session => {
+                                     session.sendRealtimeInput({ media: pcmBlob });
+                                 });
+                             };
+                             
+                             source.connect(processor);
+                             processor.connect(ctx.destination);
+                        }
                     },
                     onmessage: async (msg: LiveServerMessage) => {
                         const base64Audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
@@ -76,6 +92,7 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
                     onerror: (err) => {
                         console.error(err);
                         setStatus('Erro');
+                        setErrorMsg("Erro de conexão com o servidor.");
                     }
                 },
                 config: {
@@ -86,9 +103,11 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
                 }
             });
 
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
-            setStatus('Falha na Conexão');
+            setStatus('Falha');
+            setErrorMsg(e.message || "Falha desconhecida na conexão.");
+            setIsActive(false);
         }
     };
 
@@ -157,8 +176,8 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-            <div className="bg-slate-900 w-full max-w-md rounded-3xl p-8 text-white relative overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+            <div className="bg-slate-900 w-full max-w-md rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 animate-pulse"></div>
                 
                 <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">
@@ -175,12 +194,21 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
                     </div>
                     
                     <h2 className="text-2xl font-bold mb-2">Brainstorm ao Vivo</h2>
-                    <p className="text-slate-400 mb-8">{status}</p>
+                    <p className={`text-sm mb-6 ${errorMsg ? 'text-red-400 font-bold' : 'text-slate-400'}`}>
+                        {errorMsg || status}
+                    </p>
+                    
+                    {errorMsg && (
+                        <div className="bg-red-500/10 border border-red-500/20 p-3 rounded-lg flex items-center gap-2 text-xs text-red-200 mb-6 max-w-full text-left">
+                            <LucideAlertTriangle className="w-4 h-4 shrink-0" />
+                            {errorMsg}
+                        </div>
+                    )}
 
                     {!isActive ? (
                         <button 
                             onClick={handleConnect}
-                            className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold hover:bg-indigo-50 transition w-full"
+                            className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold hover:bg-indigo-50 transition w-full shadow-lg shadow-white/10"
                         >
                             Iniciar Sessão
                         </button>

@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Product, GeneratedContent } from '../types';
 import { LucideArrowLeft, LucideDownload, LucideCopy, LucideShare2, LucideEdit3, LucideCheck, LucideX, LucideImage, LucideUpload, LucideSparkles, LucideLoader, LucideHeadphones, LucidePlay, LucideEye } from 'lucide-react';
-import { generateCoverImage, generateSpeech, translateText } from '../services/geminiService';
+import { generateCoverImage, generateSpeech, translateText, refineSalesCopy, generateChapterImage } from '../services/geminiService';
 
 interface ProductViewProps {
   product: Product;
@@ -17,7 +17,7 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
   // Edit Cover Modal State
   const [showCoverModal, setShowCoverModal] = useState(false);
   const [modalTab, setModalTab] = useState<'ai' | 'upload'>('ai');
-  const [aiPrompt, setAiPrompt] = useState(content.coverImageDescription || '');
+  const [aiPrompt, setAiPrompt] = useState(content?.coverImageDescription || '');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -29,6 +29,50 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
 
   // PDF Preview State
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+
+  // Copy Refinement State
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [copyInstruction, setCopyInstruction] = useState('');
+  const [isRefiningCopy, setIsRefiningCopy] = useState(false);
+
+  // Auto-generate chapter images
+  useEffect(() => {
+    const generateImages = async () => {
+        if (!content || !content.chapters) return;
+        
+        let hasChanges = false;
+        const newChapters = [...content.chapters];
+
+        // Process sequentially to avoid rate limits
+        for (let i = 0; i < newChapters.length; i++) {
+            if (newChapters[i].imageDescription && !newChapters[i].imageUrl) {
+                try {
+                    // console.log(`Generating image for chapter ${i+1}...`);
+                    const imgUrl = await generateChapterImage(newChapters[i].imageDescription);
+                    if (imgUrl) {
+                        newChapters[i] = { ...newChapters[i], imageUrl: imgUrl };
+                        hasChanges = true;
+                        
+                        // Optimistic update for UI feedback
+                        const updatedProduct = {
+                            ...product,
+                            content: {
+                                ...content,
+                                chapters: newChapters
+                            }
+                        };
+                        onUpdateProduct(updatedProduct);
+                    }
+                } catch (e) {
+                    console.error(`Failed image gen for chapter ${i}`, e);
+                }
+            }
+        }
+    };
+
+    generateImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount (or when product loads)
 
   const voices = [
       { name: 'Kore', gender: 'Feminino', style: 'Calmo' },
@@ -47,11 +91,11 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
   };
 
   const handleExport = (format: 'PDF' | 'DOC' | 'MD') => {
-    // Simulation of export
+    if (!content) return;
     const element = document.createElement("a");
     const file = new Blob([JSON.stringify(content, null, 2)], {type: 'text/plain'});
     element.href = URL.createObjectURL(file);
-    element.download = `${content.title.replace(/\s+/g, '_')}_export.${format.toLowerCase()}`;
+    element.download = `${content.title ? content.title.replace(/\s+/g, '_') : 'ebook'}_export.${format.toLowerCase()}`;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
@@ -79,6 +123,29 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
     }
   };
 
+  const handleRefineCopy = async () => {
+    if (!copyInstruction || !content?.salesCopy) return;
+    setIsRefiningCopy(true);
+    try {
+        const newCopy = await refineSalesCopy(product.niche, product.targetAudience, content.salesCopy, copyInstruction);
+        const updatedProduct = {
+            ...product,
+            content: {
+                ...content,
+                salesCopy: newCopy
+            }
+        };
+        onUpdateProduct(updatedProduct);
+        setShowCopyModal(false);
+        setCopyInstruction('');
+    } catch (error) {
+        console.error(error);
+        alert("Falha ao refinar a copy.");
+    } finally {
+        setIsRefiningCopy(false);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -100,11 +167,11 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
   };
 
   const handleGenerateAudio = async () => {
+    if (!content?.chapters?.[0]?.content) return;
     setIsGeneratingAudio(true);
     try {
         let textToRead = content.chapters[0].content.slice(0, 500); // Limit length for demo speed
         
-        // Translate if selected language differs from product language (and assuming product language content matches metadata)
         if (selectedLanguage !== product.language) {
           textToRead = await translateText(textToRead, selectedLanguage);
         }
@@ -120,7 +187,7 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
     }
   };
 
-  if (!content) return <div>Erro ao carregar conteúdo</div>;
+  if (!product || !content) return <div className="p-10 text-center">Erro ao carregar conteúdo do produto.</div>;
 
   return (
     <div className="bg-slate-50 min-h-screen relative">
@@ -163,19 +230,79 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
 
                 {/* Chapters */}
                 <div className="space-y-16">
-                    {content.chapters.map((chapter, idx) => (
+                    {content.chapters?.map((chapter, idx) => (
                         <div key={idx}>
                              <h3 className="text-2xl font-serif font-bold mb-6 flex items-baseline gap-3 border-b border-slate-200 pb-2 text-slate-800">
                                 <span className="text-4xl text-slate-200 font-sans font-black">{idx + 1}</span>
                                 {chapter.title}
                              </h3>
+                             {chapter.imageUrl && (
+                                <div className="mb-6 float-right ml-6 w-1/3">
+                                    <img src={chapter.imageUrl} alt={chapter.title} className="rounded-lg shadow-md w-full" />
+                                </div>
+                             )}
                              <div className="prose prose-slate max-w-none font-serif text-justify leading-loose whitespace-pre-wrap text-lg text-slate-700">
                                  {chapter.content}
                              </div>
+                             <div className="clear-both"></div>
                         </div>
                     ))}
                 </div>
            </div>
+        </div>
+      )}
+
+      {/* Copy Refinement Modal */}
+      {showCopyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100">
+              <h3 className="text-xl font-bold text-slate-900">Gerar Copy de Vendas com IA</h3>
+              <button 
+                onClick={() => setShowCopyModal(false)}
+                className="text-slate-400 hover:text-slate-600 transition"
+              >
+                <LucideX className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-6">
+                <div className="mb-4">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Como você quer melhorar a copy?</label>
+                    <textarea 
+                      value={copyInstruction}
+                      onChange={(e) => setCopyInstruction(e.target.value)}
+                      className="w-full p-4 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none text-sm leading-relaxed h-32 resize-none"
+                      placeholder="Ex: Torne mais persuasiva, foque na dor do cliente, deixe mais curta..."
+                    />
+                </div>
+                <div className="flex gap-2 mb-6">
+                    {['Mais Agressiva', 'Mais Emocional', 'Mais Curta', 'Foco em Benefícios'].map(tag => (
+                        <button 
+                            key={tag}
+                            onClick={() => setCopyInstruction(tag)}
+                            className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-full text-xs text-slate-600 transition"
+                        >
+                            {tag}
+                        </button>
+                    ))}
+                </div>
+                <button 
+                  onClick={handleRefineCopy}
+                  disabled={isRefiningCopy || !copyInstruction}
+                  className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isRefiningCopy ? (
+                    <>
+                      <LucideLoader className="w-5 h-5 animate-spin" /> Gerando Variação...
+                    </>
+                  ) : (
+                    <>
+                      Gerar Nova Copy <LucideSparkles className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -372,12 +499,24 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
                         </p>
 
                         <div className="space-y-8">
-                            {content.chapters.map((chapter, idx) => (
+                            {content.chapters?.map((chapter, idx) => (
                                 <div key={idx} className="group">
                                     <h4 className="text-xl font-bold text-indigo-900 mb-3 flex items-center gap-2">
                                         <span className="bg-indigo-100 text-indigo-700 w-8 h-8 rounded-full flex items-center justify-center text-sm">{idx + 1}</span>
                                         {chapter.title}
                                     </h4>
+                                    
+                                    {/* Auto-generated Image Display */}
+                                    {chapter.imageUrl ? (
+                                        <div className="mb-6 rounded-xl overflow-hidden shadow-sm border border-slate-100">
+                                            <img src={chapter.imageUrl} alt={chapter.title} className="w-full h-64 object-cover" />
+                                        </div>
+                                    ) : (
+                                        <div className="mb-6 h-24 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex items-center justify-center text-slate-400 text-sm">
+                                            <LucideLoader className="w-4 h-4 animate-spin mr-2" /> Gerando ilustração para este capítulo...
+                                        </div>
+                                    )}
+
                                     <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 text-slate-700 leading-relaxed whitespace-pre-wrap">
                                         {chapter.content}
                                     </div>
@@ -394,11 +533,19 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
                 </div>
             )}
 
-            {activeTab === 'sales' && (
+            {activeTab === 'sales' && content.salesCopy && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
                      <div className="mb-6 flex items-center justify-between">
                         <h3 className="text-xl font-bold text-slate-900">Página de Vendas de Alta Conversão</h3>
-                        <button onClick={() => handleCopy(JSON.stringify(content.salesCopy, null, 2))} className="text-indigo-600 text-sm font-medium hover:underline">Copiar Tudo</button>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setShowCopyModal(true)}
+                                className="flex items-center gap-1 text-indigo-600 text-sm font-medium hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition"
+                            >
+                                <LucideSparkles className="w-4 h-4" /> Gerar Copy com IA
+                            </button>
+                            <button onClick={() => handleCopy(JSON.stringify(content.salesCopy, null, 2))} className="text-indigo-600 text-sm font-medium hover:underline">Copiar Tudo</button>
+                        </div>
                      </div>
 
                      <div className="space-y-6 border-2 border-dashed border-slate-200 rounded-xl p-8 bg-slate-50">
@@ -412,7 +559,7 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
                         <div className="py-8">
                             <span className="text-xs uppercase text-slate-400 font-bold tracking-wider mb-4 block text-center">Benefícios Chave</span>
                             <ul className="space-y-3 max-w-lg mx-auto">
-                                {content.salesCopy.benefits.map((benefit, i) => (
+                                {content.salesCopy.benefits?.map((benefit, i) => (
                                     <li key={i} className="flex items-start gap-3">
                                         <LucideCheck className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
                                         <span className="text-slate-700 font-medium">{benefit}</span>
@@ -432,7 +579,7 @@ export const ProductView: React.FC<ProductViewProps> = ({ product, onBack, onUpd
                 </div>
             )}
 
-            {activeTab === 'social' && (
+            {activeTab === 'social' && content.socialScripts && (
                 <div className="space-y-6">
                      <h3 className="text-xl font-bold text-slate-900 px-2">Roteiros de Vídeos Virais</h3>
                      <div className="grid gap-6">

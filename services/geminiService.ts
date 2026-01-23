@@ -6,31 +6,36 @@ const apiKey = process.env.API_KEY || '';
 // Initialize Gemini Client
 const ai = new GoogleGenAI({ apiKey });
 
+const salesCopySchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    headline: { type: Type.STRING, description: "Manchete de vendas de alta conversão." },
+    benefits: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Lista de 5 benefícios principais." },
+    cta: { type: Type.STRING, description: "Chamada para ação forte (Call to Action)." }
+  },
+  required: ["headline", "benefits", "cta"]
+};
+
 const generatedProductSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     title: { type: Type.STRING, description: "Título comercial e chamativo para o produto digital." },
     subtitle: { type: Type.STRING, description: "Subtítulo convincente." },
     description: { type: Type.STRING, description: "Um parágrafo curto descrevendo o produto." },
-    coverImageDescription: { type: Type.STRING, description: "Uma descrição visual de uma capa moderna e limpa." },
+    coverImageDescription: { type: Type.STRING, description: "Uma descrição visual detalhada de uma capa moderna e limpa." },
     chapters: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
           title: { type: Type.STRING },
-          content: { type: Type.STRING, description: "Um esboço detalhado e pontos-chave para este capítulo (aprox. 150 palavras)." }
-        }
+          content: { type: Type.STRING, description: "Conteúdo extremamente detalhado e extenso para este capítulo. Mínimo de 1000 palavras se possível." },
+          imageDescription: { type: Type.STRING, description: "Uma descrição visual para uma ilustração que acompanhe este capítulo." }
+        },
+        required: ["title", "content", "imageDescription"]
       }
     },
-    salesCopy: {
-      type: Type.OBJECT,
-      properties: {
-        headline: { type: Type.STRING, description: "Manchete de vendas de alta conversão." },
-        benefits: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Lista de 5 benefícios principais." },
-        cta: { type: Type.STRING, description: "Chamada para ação forte (Call to Action)." }
-      }
-    },
+    salesCopy: salesCopySchema,
     socialScripts: {
       type: Type.ARRAY,
       description: "3 roteiros de vídeo curtos (TikTok/Reels) para comercializar o produto.",
@@ -51,18 +56,20 @@ export const generateDigitalProduct = async (details: WizardState): Promise<Gene
   const modelId = "gemini-3-pro-preview"; 
   
   const prompt = `
-    Atue como um estrategista de produtos digitais e copywriter de classe mundial.
-    Crie uma estrutura completa de produto digital com base nos seguintes parâmetros:
+    Atue como um estrategista de produtos digitais e autor best-seller.
+    Crie um **E-BOOK COMPLETO E EXTENSO** (o mais próximo possível de um livro real) com base nestes parâmetros:
     
     - Nicho: ${details.niche}
     - Público-Alvo: ${details.targetAudience}
-    - Idioma do Conteúdo: ${details.language}
-    - Plataforma de Venda: ${details.platform}
+    - Idioma: ${details.language}
+    - Plataforma: ${details.platform}
     - Objetivo: ${details.goal}
-    - Tamanho/Profundidade: ${details.size}
-
-    O conteúdo deve ser de alto valor, original e comercialmente viável.
-    Evite frases genéricas que pareçam IA. Concentre-se em valor acionável.
+    
+    DIRETRIZES CRÍTICAS:
+    1. **EXTENSÃO**: Crie pelo menos 15 capítulos detalhados. O conteúdo deve ser profundo, não superficial.
+    2. **IMAGENS**: Para CADA capítulo, forneça um 'imageDescription' detalhado para que eu possa gerar ilustrações.
+    3. **VALOR**: Evite linguagem genérica de IA. Use exemplos práticos, passos acionáveis e tom de autoridade.
+    
     A saída deve seguir estritamente o esquema JSON fornecido.
   `;
 
@@ -87,14 +94,55 @@ export const generateDigitalProduct = async (details: WizardState): Promise<Gene
   }
 };
 
+export const refineSalesCopy = async (
+  niche: string, 
+  audience: string, 
+  currentCopy: any, 
+  instruction: string
+): Promise<{ headline: string, benefits: string[], cta: string }> => {
+  const modelId = "gemini-3-flash-preview"; // Fast model for iteration
+
+  const prompt = `
+    Atue como um copywriter expert. Refine a seguinte copy de vendas para um produto no nicho de "${niche}" focado em "${audience}".
+    
+    Copy Atual:
+    Headline: ${currentCopy.headline}
+    CTA: ${currentCopy.cta}
+    
+    Instrução de Melhoria: ${instruction}
+    
+    Gere uma nova versão completa (Headline, Benefícios, CTA) seguindo a instrução.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: salesCopySchema,
+      }
+    });
+
+    const textResponse = response.text;
+    if (!textResponse) throw new Error("Sem resposta da IA");
+
+    return JSON.parse(textResponse);
+  } catch (error) {
+    console.error("Erro ao refinar copy:", error);
+    throw error;
+  }
+};
+
+// Generic Image Generation (Safe fallback)
 export const generateCoverImage = async (prompt: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-2.5-flash-image', // More accessible model
       contents: {
         parts: [
           {
-            text: `Gere uma imagem de capa de livro profissional e de alta qualidade. Estilo: Moderno, minimalista, comercial. Contexto: ${prompt}`,
+            text: `Gere uma imagem profissional. Estilo: Moderno, clean. Contexto: ${prompt}`,
           },
         ],
       },
@@ -114,7 +162,35 @@ export const generateCoverImage = async (prompt: string): Promise<string> => {
     throw new Error("Nenhum dado de imagem encontrado na resposta");
   } catch (error) {
     console.error("Erro na Geração de Imagem Gemini:", error);
-    throw error;
+    // Return a placeholder or empty string if generation fails to avoid crashing UI
+    return ""; 
+  }
+};
+
+// Chapter Image Generation (Square)
+export const generateChapterImage = async (prompt: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          { text: `Ilustração para livro. Estilo minimalista e editorial. Contexto: ${prompt}` }
+        ]
+      },
+      config: {
+        imageConfig: { aspectRatio: "1:1" }
+      }
+    });
+
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      }
+    }
+    return "";
+  } catch (error) {
+    console.error("Failed to generate chapter image:", error);
+    return "";
   }
 };
 
@@ -131,11 +207,20 @@ export const generateVideo = async (prompt: string, imageBase64?: string, aspect
         // @ts-ignore
         const hasKey = await window.aistudio.hasSelectedApiKey();
         if (!hasKey) {
-            // @ts-ignore
-            await window.aistudio.openSelectKey();
-            // Re-instantiate AI client to pick up new key if needed, though usually env var is injected
+            try {
+                // @ts-ignore
+                await window.aistudio.openSelectKey();
+                // We must create a new client or retry? 
+                // In this setup, we proceed. If it fails again, we catch 403.
+            } catch (e) {
+                console.error("User cancelled key selection", e);
+                throw new Error("Seleção de chave cancelada.");
+            }
         }
     }
+
+    // Force new client instance to ensure key is picked up if changed
+    const freshAi = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
     const config = {
       numberOfVideos: 1,
@@ -143,39 +228,46 @@ export const generateVideo = async (prompt: string, imageBase64?: string, aspect
       aspectRatio: aspectRatio
     };
 
-    if (imageBase64) {
-      // Image-to-Video
-      const mimeType = imageBase64.split(';')[0].split(':')[1];
-      const data = imageBase64.split(',')[1];
-      
-      operation = await ai.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt: prompt,
-        image: {
-            imageBytes: data,
-            mimeType: mimeType
-        },
-        config: config
-      });
-    } else {
-      // Text-to-Video
-      operation = await ai.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt: prompt,
-        config: config
-      });
+    try {
+        if (imageBase64) {
+          const mimeType = imageBase64.split(';')[0].split(':')[1];
+          const data = imageBase64.split(',')[1];
+          
+          operation = await freshAi.models.generateVideos({
+            model: 'veo-3.1-fast-generate-preview',
+            prompt: prompt,
+            image: { imageBytes: data, mimeType: mimeType },
+            config: config
+          });
+        } else {
+          operation = await freshAi.models.generateVideos({
+            model: 'veo-3.1-fast-generate-preview',
+            prompt: prompt,
+            config: config
+          });
+        }
+    } catch (e: any) {
+        // Handle 403 specifically
+        if (e.message?.includes('403') || e.status === 403) {
+             // @ts-ignore
+             if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+                 // @ts-ignore
+                 await window.aistudio.openSelectKey();
+                 throw new Error("Chave API inválida ou sem permissão. Por favor, selecione uma chave paga e tente novamente.");
+             }
+        }
+        throw e;
     }
 
     // Polling
     while (!operation.done) {
       await new Promise(resolve => setTimeout(resolve, 5000));
-      operation = await ai.operations.getVideosOperation({operation: operation});
+      operation = await freshAi.operations.getVideosOperation({operation: operation});
     }
 
     const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!videoUri) throw new Error("Falha na geração do vídeo");
     
-    // Append API key for fetching
     return `${videoUri}&key=${apiKey}`;
 
   } catch (error) {
@@ -203,7 +295,6 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) throw new Error("Nenhum áudio gerado");
 
-        // Decode base64 to ArrayBuffer
         const binaryString = atob(base64Audio);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
@@ -235,7 +326,6 @@ export const translateText = async (text: string, targetLanguage: string): Promi
 // 3. Pro Image Generation
 export const generateProImage = async (prompt: string, aspectRatio: string = "1:1", size: string = "1K"): Promise<string> => {
     try {
-         // Check for API Key selection for Pro Image
         // @ts-ignore
         if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
             // @ts-ignore
@@ -245,8 +335,10 @@ export const generateProImage = async (prompt: string, aspectRatio: string = "1:
                 await window.aistudio.openSelectKey();
             }
         }
+        
+        const freshAi = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-        const response = await ai.models.generateContent({
+        const response = await freshAi.models.generateContent({
             model: 'gemini-3-pro-image-preview',
             contents: {
                 parts: [{ text: prompt }],
@@ -265,8 +357,16 @@ export const generateProImage = async (prompt: string, aspectRatio: string = "1:
             }
         }
         throw new Error("Nenhuma imagem gerada");
-    } catch (error) {
+    } catch (error: any) {
         console.error("Erro Pro Image:", error);
+        if (error.message?.includes('403') || error.status === 403) {
+             // @ts-ignore
+             if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+                 // @ts-ignore
+                 await window.aistudio.openSelectKey();
+                 throw new Error("Permissão negada. Por favor, selecione uma chave API paga.");
+             }
+        }
         throw error;
     }
 }

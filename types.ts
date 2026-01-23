@@ -13,7 +13,9 @@ export interface WizardState {
 
 export interface Chapter {
   title: string;
-  content: string; // Esboço ou resumo para o MVP
+  content: string; 
+  imageDescription: string; // Prompt for the chapter image
+  imageUrl?: string; // Generated image URL
 }
 
 export interface GeneratedContent {
