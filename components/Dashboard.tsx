@@ -43,6 +43,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ products, onCreateNew, onV
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* New Product Card Button */}
+          <button 
+            onClick={onCreateNew}
+            className="bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all duration-300 flex flex-col items-center justify-center p-6 min-h-[300px] group cursor-pointer text-left"
+          >
+             <div className="w-16 h-16 bg-white rounded-full shadow-sm border border-slate-100 flex items-center justify-center mb-4 group-hover:scale-110 transition text-indigo-600">
+                <LucidePlus className="w-8 h-8" />
+             </div>
+             <h3 className="text-lg font-bold text-slate-900">Criar Novo</h3>
+             <p className="text-sm text-slate-500">Usar Assistente IA</p>
+          </button>
+
           {products.map((product) => (
             <div 
               key={product.id}

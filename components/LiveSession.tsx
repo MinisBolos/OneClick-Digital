@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { getLiveClient } from '../services/geminiService';
 import { LiveServerMessage, Modality } from '@google/genai';
@@ -13,7 +14,6 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
     const [isMuted, setIsMuted] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     
-    // Audio Context Refs
     const inputAudioContextRef = useRef<AudioContext | null>(null);
     const outputAudioContextRef = useRef<AudioContext | null>(null);
     const sessionPromiseRef = useRef<Promise<any> | null>(null);
@@ -30,9 +30,8 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
         setStatus('Conectando...');
         setErrorMsg(null);
         try {
-            const liveClient = getLiveClient();
+            const liveClient = await getLiveClient();
             
-            // Safe AudioContext creation
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             if (!AudioContextClass) {
                 throw new Error("Seu navegador não suporta Áudio Web.");
@@ -56,7 +55,6 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
                         setStatus('Conectado');
                         setIsActive(true);
                         
-                        // Setup Input Stream
                         if (inputAudioContextRef.current) {
                              const ctx = inputAudioContextRef.current;
                              const source = ctx.createMediaStreamSource(stream);
@@ -77,13 +75,8 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
                     },
                     onmessage: async (msg: LiveServerMessage) => {
                         const base64Audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                        if (base64Audio) {
-                            playAudio(base64Audio);
-                        }
-                        
-                        if (msg.serverContent?.interrupted) {
-                            stopAudio();
-                        }
+                        if (base64Audio) playAudio(base64Audio);
+                        if (msg.serverContent?.interrupted) stopAudio();
                     },
                     onclose: () => {
                         setStatus('Desconectado');
@@ -106,7 +99,7 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
         } catch (e: any) {
             console.error(e);
             setStatus('Falha');
-            setErrorMsg(e.message || "Falha desconhecida na conexão.");
+            setErrorMsg(e.message || "Falha na conexão.");
             setIsActive(false);
         }
     };
@@ -125,19 +118,13 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
         if (!ctx) return;
 
         const binaryString = atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
         
-        // Manual Decode (PCM 24k)
         const dataInt16 = new Int16Array(bytes.buffer);
         const buffer = ctx.createBuffer(1, dataInt16.length, 24000);
         const channelData = buffer.getChannelData(0);
-        for (let i = 0; i < dataInt16.length; i++) {
-            channelData[i] = dataInt16[i] / 32768.0;
-        }
+        for (let i = 0; i < dataInt16.length; i++) channelData[i] = dataInt16[i] / 32768.0;
 
         const source = ctx.createBufferSource();
         source.buffer = buffer;
@@ -152,87 +139,41 @@ export const LiveSession: React.FC<LiveSessionProps> = ({ onClose }) => {
     };
 
     const stopAudio = () => {
-        sourcesRef.current.forEach(s => s.stop());
+        sourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
         sourcesRef.current.clear();
         nextStartTimeRef.current = 0;
     };
 
     const createBlob = (data: Float32Array) => {
-        const l = data.length;
-        const int16 = new Int16Array(l);
-        for (let i = 0; i < l; i++) {
-            int16[i] = data[i] * 32768;
-        }
+        const int16 = new Int16Array(data.length);
+        for (let i = 0; i < data.length; i++) int16[i] = data[i] * 32768;
         let binary = '';
         const bytes = new Uint8Array(int16.buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
-        return {
-            data: btoa(binary),
-            mimeType: 'audio/pcm;rate=16000'
-        };
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        return { data: btoa(binary), mimeType: 'audio/pcm;rate=16000' };
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
             <div className="bg-slate-900 w-full max-w-md rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 animate-pulse"></div>
-                
-                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">
-                    <LucideX className="w-6 h-6" />
-                </button>
-
+                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white transition"><LucideX className="w-6 h-6" /></button>
                 <div className="flex flex-col items-center py-8">
                     <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 transition-all duration-500 ${isActive ? 'bg-indigo-600 shadow-[0_0_50px_rgba(79,70,229,0.5)] scale-105' : 'bg-slate-800'}`}>
-                         {isActive ? (
-                             <LucideAudioWaveform className="w-16 h-16 animate-pulse text-white" />
-                         ) : (
-                             <LucideMicOff className="w-12 h-12 text-slate-500" />
-                         )}
+                         {isActive ? <LucideAudioWaveform className="w-16 h-16 animate-pulse text-white" /> : <LucideMicOff className="w-12 h-12 text-slate-500" />}
                     </div>
-                    
-                    <h2 className="text-2xl font-bold mb-2">Brainstorm ao Vivo</h2>
-                    <p className={`text-sm mb-6 ${errorMsg ? 'text-red-400 font-bold' : 'text-slate-400'}`}>
-                        {errorMsg || status}
-                    </p>
-                    
-                    {errorMsg && (
-                        <div className="bg-red-500/10 border border-red-500/20 p-3 rounded-lg flex items-center gap-2 text-xs text-red-200 mb-6 max-w-full text-left">
-                            <LucideAlertTriangle className="w-4 h-4 shrink-0" />
-                            {errorMsg}
-                        </div>
-                    )}
-
+                    <h2 className="text-2xl font-bold mb-2">Sessão Brainstorm</h2>
+                    <p className={`text-sm mb-6 ${errorMsg ? 'text-red-400' : 'text-slate-400'}`}>{errorMsg || status}</p>
                     {!isActive ? (
-                        <button 
-                            onClick={handleConnect}
-                            className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold hover:bg-indigo-50 transition w-full shadow-lg shadow-white/10"
-                        >
-                            Iniciar Sessão
-                        </button>
+                        <button onClick={handleConnect} className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold hover:bg-indigo-50 transition w-full shadow-lg">Iniciar</button>
                     ) : (
                         <div className="flex gap-4 w-full">
-                            <button 
-                                onClick={() => setIsMuted(!isMuted)}
-                                className={`flex-1 py-3 rounded-full font-bold transition flex items-center justify-center gap-2 ${isMuted ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 hover:bg-slate-700'}`}
-                            >
-                                {isMuted ? <LucideMicOff className="w-4 h-4" /> : <LucideMic className="w-4 h-4" />}
-                                {isMuted ? 'Mudo' : 'Mutar'}
+                            <button onClick={() => setIsMuted(!isMuted)} className={`flex-1 py-3 rounded-full font-bold transition flex items-center justify-center gap-2 ${isMuted ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 hover:bg-slate-700'}`}>
+                                {isMuted ? <LucideMicOff className="w-4 h-4" /> : <LucideMic className="w-4 h-4" />} {isMuted ? 'Mudo' : 'Mutar'}
                             </button>
-                            <button 
-                                onClick={handleDisconnect}
-                                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-full font-bold transition"
-                            >
-                                Encerrar
-                            </button>
+                            <button onClick={handleDisconnect} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-full font-bold transition">Sair</button>
                         </div>
                     )}
-                </div>
-                
-                <div className="text-center text-xs text-slate-500 mt-4">
-                    Powered by Gemini 2.5 Native Audio
                 </div>
             </div>
         </div>
